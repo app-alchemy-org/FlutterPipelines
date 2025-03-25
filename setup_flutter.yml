@@ -1,0 +1,15 @@
+steps:
+- task: FlutterInstall@0
+  displayName: "Install Flutter"
+  inputs:
+    mode: 'auto'
+    channel: 'stable'
+    version: 'latest'
+
+- script: |
+    flutter doctor -v
+  displayName: Run Flutter Doctor
+
+- script: |
+    flutter pub get
+  displayName: Run Flutter pub get

@@ -1,0 +1,115 @@
+# Starter pipeline
+# Start with a minimal pipeline that you can customize to build and deploy your code.
+# Add steps that build, run tests, deploy, and more:
+# https://aka.ms/yaml
+
+trigger:
+- production
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  - group: shared_variables
+  - group: ios
+  - group: version_variables
+  - name: app_version_name
+    value: $(app_version_major).$(app_version_minor).$(app_version_patch)
+
+name: $(app_version_major).$(app_version_minor).$(app_version_patch)+$(app_version_code)
+
+jobs:
+- job: ios_job
+  displayName: iOS Job
+  pool:
+    vmImage: macos-latest
+  steps:
+  - template: setup_flutter.yml  
+
+  - task: InstallAppleCertificate@2
+    inputs:
+      certSecureFile: Certificates.p12
+      certPwd: $(certificate_password) 
+
+  - task: InstallAppleProvisioningProfile@1
+    inputs:
+      provisioningProfileLocation: 'secureFiles'
+      provProfileSecureFile: Flutter_Pipeline_Demo_Distribution_Profile.mobileprovision
+
+  - task: FlutterBuild@0
+    displayName: Build Flutter iOS App
+    inputs:
+      target: 'ipa'
+      projectDirectory: '.'
+      exportOptionsPlist: 'ios/ExportOptions.plist'
+      buildName: $(app_version_name)
+      buildNumber: $(app_version_code)
+
+  - task: CopyFiles@2
+    displayName: Copy IPA to artifact staging directory
+    inputs:
+      Contents: '**/*.ipa'
+      TargetFolder: $(Build.ArtifactStagingDirectory)
+      flattenFolders: true
+
+  - task: PublishBuildArtifacts@1
+    displayName: Publish iOS artifact
+    inputs:
+      PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+      ArtifactName: 'iOS'
+
+- job: android_job
+  displayName: Android Job
+  dependsOn: ios_job
+  pool:
+    vmImage: ubuntu-latest
+  steps:
+  - template: setup_flutter.yml
+
+  - task: JavaToolInstaller@1
+    displayName: Target Java 17
+    inputs:
+      versionSpec: '17'
+      jdkArchitectureOption: 'x64' 
+      jdkSourceOption: 'PreInstalled'
+
+  - task: DownloadSecureFile@1
+    name: keyproperties
+    displayName: Download key.properties file
+    inputs:
+      secureFile: 'key.properties'
+
+  - task: DownloadSecureFile@1
+    name: keystore
+    displayName: Download keystore file
+    inputs:
+      secureFile: 'upload-keystore.jks'
+
+  - script: |
+        cp $(keyproperties.secureFilePath) $(Build.SourcesDirectory)/android/key.properties
+        cp $(keystore.secureFilePath) $(Build.SourcesDirectory)/android/app/upload-keystore.jks
+
+        echo Android folder contents: $(ls $(Build.SourcesDirectory)/android)
+        echo App folder contents: $(ls $(Build.SourcesDirectory)/android/app)
+    displayName: Copy keystore and key properties files
+
+  - task: FlutterBuild@0
+    displayName: Build Flutter Android App
+    inputs:
+      target: 'aab'
+      projectDirectory: '.'
+      buildName: $(app_version_name)
+      buildNumber: $(app_version_code)
+
+  - task: CopyFiles@2
+    displayName: Copy AAB to artifact staging directory
+    inputs:
+      Contents: '**/app-release.aab'
+      TargetFolder: $(Build.ArtifactStagingDirectory)
+      flattenFolders: true
+
+  - task: PublishBuildArtifacts@1
+    displayName: Publish Android artifact
+    inputs:
+      PathtoPublish: '$(Build.ArtifactStagingDirectory)' # string. Required. Path to publish. Default: $(Build.ArtifactStagingDirectory).
+      ArtifactName: 'Android'
